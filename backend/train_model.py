@@ -51,3 +51,20 @@ def train():
     model = Simple3DModel().cuda() if torch.cuda.is_available() else Simple3DModel()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
+
+    for epoch in range(10):
+        for images in dataloader:
+            images = images.cuda() if torch.cuda.is_available() else images
+            outputs = model(images)
+            loss = criterion(outputs, images.view(images.size(0), -1)) # temp mock loss
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        print(f"Epoch [{epoch+1}/10], Loss: {loss.item():.4f}")
+
+    torch.save(model.state_dict(), "backend/models/humanoid_model.pth")
+    print("Model training complete and saved successfully!")
+
+if __name__ == "__main__":
+    train()

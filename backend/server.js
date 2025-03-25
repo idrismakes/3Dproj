@@ -1,5 +1,5 @@
 const express = require('express');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
@@ -14,12 +14,13 @@ app.use(cors()); // Enable CORS for frontend communication
 
 // Setup directories
 const uploadsDir = path.join(__dirname, 'uploads');
-const modelsDir = path.join(__dirname, 'models');
+const datasetDir = path.join(__dirname, 'dataset');
 const processedImagesDir = path.join(__dirname, 'processed_images');
+const modelCheckpointsDir = path.join(__dirname, 'model_checkpoints');
 
-[uploadsDir, modelsDir, processedImagesDir].forEach(dir => {
+[uploadsDir, datasetDir, processedImagesDir, modelCheckpointsDir].forEach(dir => {
     if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true }); // Ensures parent directories are created if needed
+        fs.mkdirSync(dir, { recursive: true });
         console.log(`Created directory: ${dir}`);
     }
 });
@@ -27,32 +28,13 @@ const processedImagesDir = path.join(__dirname, 'processed_images');
 // Set up multer for image uploads
 const upload = multer({ dest: uploadsDir });
 
-// Function to call Blender in headless mode
-const runBlender = (inputFile, outputFile) => {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(inputFile)) {
-            return reject("Error: Input Blender file does not exist.");
-        }
-        const command = `blender -b ${inputFile} --python-expr "import bpy; bpy.ops.export_scene.gltf(filepath='${outputFile}', export_format='GLB')"`;
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                console.error(`Blender error: ${error.message}`);
-                return reject(error.message);
-            }
-            if (stderr) console.error(`Blender stderr: ${stderr}`);
-            resolve(stdout);
-        });
-    });
-};
-
 // Serve static files
-app.use('/models', express.static(modelsDir));
 app.use('/processed_images', express.static(processedImagesDir));
 app.use(cors({
-    origin: 'http://localhost:5173',  // Allow frontend requests
+    origin: 'http://localhost:5173', // Frontend port
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type'],
-  }));
+}));
 
 // Root endpoint
 app.get('/', (req, res) => res.send('Backend is running!'));
@@ -66,50 +48,74 @@ app.post('/upload-images', upload.array('images', 5), (req, res) => {
     const imagePaths = req.files.map(file => path.join(uploadsDir, file.filename));
     const scriptPath = path.join(__dirname, 'image_preprocessing.py');
 
-    exec(`python3 ${scriptPath} ${imagePaths.join(' ')}`, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error processing images: ${error.message}`);
-            return res.status(500).json({ error: 'Image processing failed', details: error.message });
-        }
-        if (stderr) {
-            console.error(`Python stderr: ${stderr}`);
-        }
+    const process = spawn('python3', [scriptPath, ...imagePaths]);
 
-        const processedImages = stdout.trim().split('\n').filter(filename => filename);
-        res.json({ message: 'Images processed successfully', processedImages });
+    let processedImages = [];
+
+    process.stdout.on('data', (data) => {
+        processedImages = data.toString().trim().split('\n').filter(filename => filename);
+    });
+
+    process.stderr.on('data', (data) => {
+        console.error(`Python stderr: ${data.toString()}`);
+    });
+
+    process.on('close', (code) => {
+        if (code === 0) {
+            res.json({ message: 'Images processed successfully', processedImages });
+        } else {
+            res.status(500).json({ error: 'Image processing failed' });
+        }
     });
 });
 
-// API: Process model with Blender
-app.post('/process-model', async (req, res) => {
-    const inputFile = path.join(modelsDir, 'input-model.blend');
-    if (!fs.existsSync(inputFile)) {
-        console.error(`❌ Model file not found at ${inputFile}`);
-        return res.status(400).json({ error: 'Model file does not exist. Upload a .blend model first.' });
-}
-    const outputFile = path.join(modelsDir, 'output-model.glb');
+// API: Train PyTorch Model
+app.post('/train-model', (req, res) => {
+    const trainScriptPath = path.join(__dirname, 'train_model.py');
 
-    if (!fs.existsSync(inputFile)) {
-        return res.status(400).json({ error: 'Model file does not exist' });
-    }
+    const process = spawn('python3', [trainScriptPath]);
 
-    try {
-        await runBlender(inputFile, outputFile);
-        res.json({ message: 'Model processed successfully', modelUrl: `http://localhost:5000/models/output-model.glb` });
-    } catch (error) {
-        res.status(500).json({ error: `Blender processing failed: ${error}` });
-    }
+    process.stdout.on('data', (data) => {
+        console.log(`Training output: ${data.toString()}`);
+    });
+
+    process.stderr.on('data', (data) => {
+        console.error(`Training error: ${data.toString()}`);
+    });
+
+    process.on('close', (code) => {
+        if (code === 0) {
+            res.json({ message: '✅ Model trained successfully' });
+        } else {
+            res.status(500).json({ error: '❌ Model training failed' });
+        }
+    });
 });
 
-// API: Get latest processed model
-app.get('/latest-model', (req, res) => {
-    const modelPath = path.join(modelsDir, 'output-model.glb');
-    if (fs.existsSync(modelPath)) {
-        res.json({ modelUrl: `http://localhost:5000/models/output-model.glb` });
-    } else {
-        res.status(404).json({ message: 'No model available' });
-    }
+// API: Predict with PyTorch Model
+app.post('/predict', (req, res) => {
+    const predictScriptPath = path.join(__dirname, 'predict_model.py');
+
+    const process = spawn('python3', [predictScriptPath]);
+
+    let predictionResult = '';
+
+    process.stdout.on('data', (data) => {
+        predictionResult += data.toString();
+    });
+
+    process.stderr.on('data', (data) => {
+        console.error(`Prediction error: ${data.toString()}`);
+    });
+
+    process.on('close', (code) => {
+        if (code === 0) {
+            res.json({ message: '✅ Prediction completed', result: predictionResult.trim() });
+        } else {
+            res.status(500).json({ error: '❌ Prediction failed' });
+        }
+    });
 });
 
 // Start server
-app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+app.listen(port, () => console.log(`🚀 Server running at http://localhost:${port}`));
