@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import './App.css';
 import axios from 'axios';
-import ModelViewer from './ModelViewer'; // Import the ModelViewer component
-import ImageUploader from './ImageUploader'; // Import the ImageUploader component
+import ModelViewer from './ModelViewer';
+import ImageUploader from './ImageUploader';
 
 function App() {
   const [message, setMessage] = useState('');
@@ -17,23 +17,32 @@ function App() {
   };
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>3D Model Viewer</h1>
-        <button onClick={fetchMessage}>Fetch Backend Message</button>
+    <div className="app-root">
+      <header className="app-header">
+        <div className="header-inner">
+          <h1 className="title">3D Model Generator</h1>
+          <div className="header-actions">
+            <button className="btn" onClick={fetchMessage}>
+              Fetch Backend Message
+            </button>
+          </div>
+        </div>
       </header>
-      <main>
-        <p>{message}</p>
-        <div style={{ display: 'flex', flexDirection: 'row' }}>
-          {/* ImageUploader for uploading images */}
-          <div style={{ width: '30%', padding: '10px' }}>
-            <h2>Upload Images</h2>
-            <ImageUploader />
-          </div>
-          {/* ModelViewer for displaying the spinning model */}
-          <div style={{ width: '70%' }}>
+
+      <main className="app-main">
+        {message && <div className="backend-message">{message}</div>}
+
+        <div className="layout-grid">
+          <aside className="left-column">
+            <div className="uploader-card">
+              <h2>Upload Images</h2>
+              <ImageUploader />
+            </div>
+          </aside>
+
+          <section className="center-column">
             <ModelViewer />
-          </div>
+          </section>
         </div>
       </main>
     </div>

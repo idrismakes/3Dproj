@@ -6,6 +6,10 @@ const ImageUploader = () => {
   const [message, setMessage] = useState('');
   const [processedImages, setProcessedImages] = useState<string[]>([]);
 
+  const removeImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const fileList = Array.from(event.target.files);
@@ -54,53 +58,52 @@ const ImageUploader = () => {
   };
 
   return (
-    <div style={{ padding: '20px', backgroundColor: '#f9f9f9' }}>
-      <h3>Upload Images</h3>
-      <input
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleFileChange}
-        style={{ marginBottom: '10px' }}
-      />
-      <button onClick={handleUpload} style={{ marginBottom: '10px' }}>
-        Upload
-      </button>
-      <p>{message}</p>
+    <div className="uploader">
+      <div className="uploader-controls">
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleFileChange}
+          className="file-input"
+          aria-label="Upload images"
+        />
+        <button className="btn primary" onClick={handleUpload}>
+          Upload
+        </button>
+      </div>
+
+      {message && <div className="upload-message">{message}</div>}
 
       {images.length > 0 && (
-        <div>
-          <h4>🖼 Selected Images:</h4>
-          <ul>
-            {images.map((image, index) => (
-              <li key={index}>
-                {image.name}
-                <img
-                  src={URL.createObjectURL(image)}
-                  alt={`Uploaded ${index}`}
-                  width="100"
-                  style={{ marginLeft: '10px' }}
-                />
-              </li>
-            ))}
-          </ul>
+        <div className="preview-grid">
+          {images.map((image, index) => (
+            <div className="preview-item" key={index}>
+              <button
+                className="preview-remove"
+                aria-label={`Remove ${image.name}`}
+                onClick={() => removeImage(index)}
+              >
+                ×
+              </button>
+              <img src={URL.createObjectURL(image)} alt={`Uploaded ${index}`} />
+              <div className="preview-name">{image.name}</div>
+              <button className="preview-delete" onClick={() => removeImage(index)}>Delete</button>
+            </div>
+          ))}
         </div>
       )}
 
       {processedImages.length > 0 && (
-        <div>
-          <h4>📌 Processed Images:</h4>
-          <ul>
-            {processedImages.map((image, index) => (
-              <li key={index}>
-                <img
-                  src={`http://localhost:5000/processed_images/${image}`}
-                  alt={`Processed ${index}`}
-                  width="100"
-                />
-              </li>
-            ))}
-          </ul>
+        <div className="processed-grid">
+          {processedImages.map((image, index) => (
+            <div className="processed-item" key={index}>
+              <img
+                src={`http://localhost:5000/processed_images/${image}`}
+                alt={`Processed ${index}`}
+              />
+            </div>
+          ))}
         </div>
       )}
     </div>
