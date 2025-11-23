@@ -120,9 +120,18 @@ const ModelViewer = () => {
         const fetchModelUrl = async () => {
             try {
                 const response = await axios.get('http://localhost:5000/latest-model');
-                setModelUrl(response.data.modelUrl);
+                // If backend returned a model URL use it, otherwise fall back to the local FBX
+                const defaultModel = '/models/LowPolyCharacter.fbx';
+                if (response.data && response.data.modelUrl) {
+                    setModelUrl(response.data.modelUrl);
+                } else {
+                    console.info('No model URL returned from backend; loading default model.');
+                    setModelUrl(defaultModel);
+                }
             } catch (error) {
                 console.error('Error fetching model URL:', error);
+                // On error, fall back to bundled default model
+                setModelUrl('/models/LowPolyCharacter.fbx');
             }
         };
 
@@ -167,44 +176,78 @@ const ModelViewer = () => {
 
         loader.load(
             modelUrl,
-            (object) => {
-                        if (fileExtension === 'gltf' || fileExtension === 'glb') {
-                            object = object.scene; // GLTF models have a `scene` property
-                        }
+            (result) => {
+                        // Normalize GLTF vs FBX result into a THREE.Object3D
+                        const loaded: THREE.Object3D = (fileExtension === 'gltf' || fileExtension === 'glb')
+                            ? ((result as any).scene as THREE.Object3D)
+                            : (result as unknown as THREE.Object3D);
 
-                        object.scale.set(0.02, 0.02, 0.02);
-                        object.position.set(0, -1, 0);
-
-                        object.traverse((child) => {
-                            if ((child as THREE.Mesh).isMesh) {
+                        // Ensure meshes cast/receive shadows
+                        loaded.traverse((child: any) => {
+                            if (child.isMesh) {
                                 child.castShadow = true;
                                 child.receiveShadow = true;
                             }
                         });
 
-                        // If a placeholder exists, remove it
+                        // Remove placeholder if present
                         if (placeholderRef.current) {
                             try { scene.remove(placeholderRef.current); } catch {}
                             placeholderRef.current = null;
                         }
 
-                        // attempt to compute bounding box and normalize scale & center
                         try {
-                            const box = new THREE.Box3().setFromObject(object as THREE.Object3D);
+                            // Compute bounding box to determine size
+                            const box = new THREE.Box3().setFromObject(loaded);
                             const size = box.getSize(new THREE.Vector3());
                             const maxDim = Math.max(size.x, size.y, size.z);
+
+                            // Desired size in scene units (tweakable)
+                            const desiredSize = 6;
                             if (maxDim > 0) {
-                                const scale = 4 / maxDim;
-                                object.scale.setScalar(object.scale.x * scale);
+                                const scaleFactor = desiredSize / maxDim;
+                                loaded.scale.multiplyScalar(scaleFactor);
                             }
-                            const center = box.getCenter(new THREE.Vector3());
-                            object.position.sub(center);
+
+                            // Recompute box after scaling and center the model
+                            const box2 = new THREE.Box3().setFromObject(loaded);
+                            const center = box2.getCenter(new THREE.Vector3());
+                            loaded.position.sub(center);
+
+                            // Lift model so its base sits at y = 0 (ground)
+                            const box3 = new THREE.Box3().setFromObject(loaded);
+                            const minY = box3.min.y;
+                            loaded.position.y -= minY; // bring base to y=0
                         } catch (err) {
-                            // ignore bounding errors
+                            // fallback positioning
+                            loaded.position.set(0, 0, 0);
+                            loaded.scale.set(1, 1, 1);
                         }
 
-                        scene.add(object);
-                        modelRef.current = object as THREE.Object3D;
+                        scene.add(loaded);
+                        modelRef.current = loaded;
+
+                        // Try to frame the model by adjusting camera and controls target
+                        try {
+                            const boxFinal = new THREE.Box3().setFromObject(loaded);
+                            const sphere = new THREE.Sphere();
+                            boxFinal.getBoundingSphere(sphere);
+                            const cam = cameraRef.current;
+                            const ctrls = controlsRef.current;
+                            if (cam) {
+                                // Use a tighter framing so the camera starts closer to the model
+                                const offset = Math.max(sphere.radius * 1.2, 6);
+                                cam.position.set(sphere.center.x, sphere.center.y + offset * 0.5, sphere.center.z + offset * 0.9);
+                                cam.lookAt(sphere.center);
+                                cam.updateProjectionMatrix();
+                            }
+                            if (ctrls) {
+                                ctrls.target.copy(sphere.center);
+                                ctrls.update();
+                            }
+                        } catch (err) {
+                            // ignore framing errors
+                        }
             },
             undefined,
             (error) => {
